@@ -21,8 +21,12 @@ loadEnv();
 
 /** Настройки подключения бд */
 export const AppDataSource = new DataSource({
-    type: 'better-sqlite3',
+    type: 'postgres',
 		database: process.env.DATABASE,
+    host: process.env.DATABASE_HOST,
+    port: +process.env.DATABASE_PORT,
+    username: process.env.DATABASE_USERNAME,
+    password: process.env.DATABASE_PASSWORD,
     synchronize: false,
 		migrationsRun: true,
     logging: false,

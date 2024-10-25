@@ -3,18 +3,18 @@ import { ParserService } from './modules/parser/parser.service';
 import { EntityManager } from './modules/entity-manager/entity.manager';
 
 const bootstrap = async () => {
-	/** Значения из конфига или при его отсутствии - по умолчанию */
-	const dbname = process.env.DATABASE ?? 'dev_crawler';
-	const baseUrl = process.env.BASE_URL ?? 'https://google.com';
+	const dbname = process.env.DATABASE;
+	const baseUrls = (process.env.BASE_URL ?? "").split(",");
 
-	/** Инициализация БД */
+	if (!baseUrls) throw new Error('Unknown base urls')
+	if (!dbname) throw new Error('Unknown database name')
+
   await AppDataSource.initialize().then(() => console.log(`Web-crawler:: Database "${dbname}" initialized`));
 
 	const entityManager = new EntityManager(AppDataSource);
-	const parser = new ParserService(baseUrl, entityManager);
-	await parser.crawl();
+	const parser = new ParserService(entityManager);
+	await parser.crawl(baseUrls, 2);
 
-	/** Топ 20 наиболее часто встречающихся слов */
 	console.log('Web-crawler:: Most popular words:');
 	console.log(await entityManager.getMostPopularWords(20));
 };

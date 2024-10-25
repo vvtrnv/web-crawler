@@ -10,25 +10,28 @@ import {
 import { EntityManager } from '../entity-manager/entity.manager';
 import { BaseEntity } from '../../base/base.entity';
 import { DeepPartial, EntityTarget, FindOptionsWhere } from 'typeorm';
+import * as fs from 'node:fs/promises'
+
 
 export class ParserService {
-  private ignoreWordsList = ['и', 'а', 'но', 'за', 'по'];
   private indexed = 0;
-  constructor(private baseUrl: string, private entityManagerService: EntityManager) {}
+  constructor(private entityManagerService: EntityManager) {}
 
   /**
    * Непосредственно сам метод сбора данных.
    * Начиная с заданного списка страниц, выполняет поиск в ширину
    * до заданной глубины, индексируя все встречающиеся по пути страницы
    */
-  public async crawl(urlList: string[] = [this.baseUrl], maxDepth: number = 3) {
+  public async crawl(urlList: string[], maxDepth: number = 3) {
     let urlListCopy = [...urlList];
 
     for (let currDepth = 0; currDepth < maxDepth; currDepth++) {
       const nextUrlsSet: Set<string> = new Set();
       for (const url of urlListCopy) {
-        /** проблемная страница */
-        if (url === 'https://history.eco/karta-sajta/') {
+        const urlObject: URL = new URL(url)
+
+        /** проблемные страницы */
+        if (url === 'https://history.eco/karta-sajta/' || url.startsWith("http://git.postgresql.org/")) {
           continue;
         }
         console.log(url);
@@ -49,12 +52,23 @@ export class ParserService {
           links.map(async (_, link) => {
             const href = $(link).attr('href');
             const text = $(link).text();
+            if (href) {
+              let cleanedUrl: string = href
 
-            if (href && (href.startsWith('https') || href.startsWith('http'))) {
+              /** Отсеиваем якори */
+              if (!href.startsWith('https') && !href.startsWith('http') && !href.startsWith('/')) {
+                console.log("error:", href);
+                return
+              }
+
+              if (href.startsWith('/')) {
+                cleanedUrl = `${urlObject.protocol}//${urlObject.hostname}${href}`
+              }
+    
               /** Убираем якоря */
-              const cleanedUrl = href.replace(/#.*$/, '');
-
+              cleanedUrl = cleanedUrl.replace(/#.*$/, '');
               nextUrlsSet.add(cleanedUrl);
+
               const newUrlEntity = await this.getOrCreateEntity(
                 UrlListEntity,
                 { url: cleanedUrl },
@@ -86,6 +100,16 @@ export class ParserService {
 
     console.log('Counts of entities:');
     console.log(JSON.stringify(counts));
+
+    await this.writeToFile(counts)
+  }
+
+  private async writeToFile(body) {
+    try {
+      await fs.appendFile('./statistics.txt', JSON.stringify(body) + '\n');
+    } catch (err) {
+      console.log(err);
+    }
   }
 
   /**
@@ -111,9 +135,9 @@ export class ParserService {
     /** Проверяем наличие слов  */
     for (let numWord = 0; numWord < words.length; numWord++) {
       const word = words[numWord];
-      /** Английское слово или слово из списка игнорируемых */
-      if (this.isEnglishWord(word) || this.ignoreWordsList.includes(word)) {
-        continue;
+
+      if (this.skipWord(word)) {
+        continue
       }
 
       const wordEntity = await this.entityManagerService.create(WordListEntity, { word: word, isFiltered: true });
@@ -207,9 +231,10 @@ export class ParserService {
     const words: string[] = this.separateWords(textWithoutTags);
 
     for (const word of words) {
-      if (this.isEnglishWord(word) || this.ignoreWordsList.includes(word)) {
-        continue;
+      if (this.skipWord(word)) {
+        continue
       }
+
       const wordEntity = await this.getOrCreateEntity(WordListEntity, { word: word }, { word: word, isFiltered: true });
 
       await this.entityManagerService.create(LinkWordEntity, {
@@ -219,12 +244,13 @@ export class ParserService {
     }
   }
 
-  /**
-   * Проверка на английское словов
-   */
-  private isEnglishWord(text: string): boolean {
-    const relugarExpPattern = /[a-zA-Z]+/g;
-    return relugarExpPattern.test(text);
+
+  private skipWord(word: string): boolean {
+    const parsedWord = Number.parseInt(word)
+    if (Number.isNaN(parsedWord) && word.length > 2) {
+      return false
+    }
+    return true
   }
 
   /**
